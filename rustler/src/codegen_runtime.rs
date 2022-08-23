@@ -13,7 +13,7 @@ pub use crate::wrapper::{
 };
 
 #[cfg(windows)]
-pub use rustler_sys::{TWinDynNifCallbacks, WIN_DYN_NIF_CALLBACKS};
+pub use crate::sys::{TWinDynNifCallbacks, WIN_DYN_NIF_CALLBACKS};
 
 pub unsafe trait NifReturnable {
     unsafe fn into_returned(self, env: Env) -> NifReturned;
@@ -71,7 +71,7 @@ impl NifReturned {
                 flags,
                 fun,
                 args,
-            } => rustler_sys::enif_schedule_nif(
+            } => crate::sys::enif_schedule_nif(
                 env.as_c_arg(),
                 fun_name.as_ptr() as *const u8,
                 flags as i32,

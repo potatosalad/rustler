@@ -38,7 +38,7 @@ mod term;
 
 pub use crate::term::Term;
 pub use crate::types::{
-    Atom, Binary, Decoder, Encoder, ListIterator, LocalPid, MapIterator, NewBinary, OwnedBinary,
+    Atom, Binary, Decoder, Encoder, ListIterator, LocalPid, MapIterator, Monitor, NewBinary, OwnedBinary,
 };
 pub mod resource;
 pub use crate::resource::ResourceArc;
@@ -72,3 +72,5 @@ pub use rustler_codegen::{
     init, nif, NifException, NifMap, NifRecord, NifStruct, NifTaggedEnum, NifTuple, NifUnitEnum,
     NifUntaggedEnum,
 };
+
+pub use rustler_sys as sys;

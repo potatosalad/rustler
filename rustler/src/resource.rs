@@ -4,14 +4,17 @@
 //! NIF calls. The struct will be automatically dropped when the BEAM GC decides that there are no
 //! more references to the resource.
 
-use std::marker::PhantomData;
+use std::{marker::PhantomData, mem::MaybeUninit};
 use std::mem;
 use std::ops::Deref;
 use std::ptr;
 
-use super::{Decoder, Encoder, Env, Error, NifResult, Term};
+use crate::codegen_runtime::NIF_TERM;
+use crate::sys::{ErlNifEvent, ErlNifMonitor, ErlNifPid, ErlNifSelectFlags, ErlNifSelectReturnFlags, ERL_NIF_SELECT_READ, ERL_NIF_SELECT_WRITE, ERL_NIF_SELECT_ERROR, ERL_NIF_SELECT_CUSTOM_MSG};
+
+use super::{Decoder, Encoder, Env, Error, LocalPid, Monitor, NifResult, Term};
 use crate::wrapper::{
-    c_void, NifResourceFlags, MUTABLE_NIF_RESOURCE_HANDLE, NIF_ENV, NIF_RESOURCE_TYPE,
+    c_int, c_void, NifResourceFlags, NifResourceStop, NifResourceDown, NifResourceDynCall, MUTABLE_NIF_RESOURCE_HANDLE, NIF_ENV, NIF_RESOURCE_TYPE,
 };
 
 /// Re-export a type used by the `resource!` macro.
@@ -65,6 +68,47 @@ extern "C" fn resource_destructor<T>(_env: NIF_ENV, handle: MUTABLE_NIF_RESOURCE
     }
 }
 
+/// Notity that resource that a select stop event has occured.
+extern "C" fn resource_select_stop<T: SelectStopResource>(
+    nif_env: NIF_ENV,
+    handle: MUTABLE_NIF_RESOURCE_HANDLE,
+    event: ErlNifEvent,
+    is_direct_call: c_int,
+) {
+    let lifetime = ();
+    let env = unsafe { crate::Env::new(&lifetime, nif_env) };
+    let resource = ResourceArc::<T>::from_c_arg(handle);
+    let is_direct_call = if is_direct_call == 0 { false } else { true };
+    T::resource_select_stop(env, resource, event, is_direct_call);
+}
+
+/// Notity that resource that a monitored object is down.
+extern "C" fn resource_monitor_down<T: MonitorDownResource>(
+    nif_env: NIF_ENV,
+    handle: MUTABLE_NIF_RESOURCE_HANDLE,
+    pid: *const ErlNifPid,
+    mon: *const ErlNifMonitor,
+) {
+    let lifetime = ();
+    let env = unsafe { crate::Env::new(&lifetime, nif_env) };
+    let resource = ResourceArc::<T>::from_c_arg(handle);
+    let pid = LocalPid::from_c_arg(unsafe { *pid });
+    let mon = Monitor::from_c_arg(unsafe { *mon });
+    T::resource_monitor_down(env, resource, pid, mon);
+}
+
+/// Perform a dynamic call between NIF resources.
+extern "C" fn resource_dynamic_call<T: DynamicCallResource>(
+    nif_env: NIF_ENV,
+    handle: MUTABLE_NIF_RESOURCE_HANDLE,
+    call_data: *const c_void,
+) {
+    let lifetime = ();
+    let env = unsafe { crate::Env::new(&lifetime, nif_env) };
+    let resource = ResourceArc::<T>::from_c_arg(handle);
+    T::resource_dynamic_call(env, resource, call_data);
+}
+
 /// This is the function that gets called from resource! in on_load to create a new
 /// resource type.
 ///
@@ -72,16 +116,22 @@ extern "C" fn resource_destructor<T>(_env: NIF_ENV, handle: MUTABLE_NIF_RESOURCE
 ///
 /// Panics if `name` isn't null-terminated.
 #[doc(hidden)]
-pub fn open_struct_resource_type<T: ResourceTypeProvider>(
+pub fn init_struct_resource_type<T: ResourceTypeProvider>(
     env: Env,
     name: &str,
+    stop: Option<NifResourceStop>,
+    down: Option<NifResourceDown>,
+    dyncall: Option<NifResourceDynCall>,
     flags: NifResourceFlags,
 ) -> Option<ResourceType<T>> {
     let res: Option<NIF_RESOURCE_TYPE> = unsafe {
-        crate::wrapper::resource::open_resource_type(
+        crate::wrapper::resource::init_resource_type(
             env.as_c_arg(),
             name.as_bytes(),
             Some(resource_destructor::<T>),
+            stop,
+            down,
+            dyncall,
             flags,
         )
     };
@@ -156,14 +206,7 @@ where
             Some(res) => res,
             None => return Err(Error::BadArg),
         };
-        unsafe {
-            crate::wrapper::resource::keep_resource(res_resource);
-        }
-        let casted_ptr = unsafe { align_alloced_mem_for_struct::<T>(res_resource) as *mut T };
-        Ok(ResourceArc {
-            raw: res_resource,
-            inner: casted_ptr,
-        })
+        Ok(Self::from_c_arg(res_resource))
     }
 
     fn as_term<'a>(&self, env: Env<'a>) -> Term<'a> {
@@ -175,8 +218,19 @@ where
         }
     }
 
-    fn as_c_arg(&mut self) -> *const c_void {
+    pub fn as_c_arg(&mut self) -> *const c_void {
         self.raw
+    }
+
+    pub fn from_c_arg(c_resource: *const c_void) -> Self {
+        unsafe {
+            crate::wrapper::resource::keep_resource(c_resource);
+        }
+        let casted_ptr = unsafe { align_alloced_mem_for_struct::<T>(c_resource) as *mut T };
+        Self {
+            raw: c_resource,
+            inner: casted_ptr,
+        }
     }
 
     fn inner(&self) -> &T {
@@ -223,7 +277,177 @@ where
     /// at an unpredictable time: whenever the VM decides to do garbage
     /// collection.
     fn drop(&mut self) {
-        unsafe { rustler_sys::enif_release_resource(self.as_c_arg()) };
+        unsafe { crate::sys::enif_release_resource(self.as_c_arg()) };
+    }
+}
+
+pub trait ResourceArcSelect {
+    fn resource_select(&self, caller_env: Option<&Env>, event: ErlNifEvent, mode: ErlNifSelectFlags, pid: &LocalPid, select_ref: NIF_TERM) -> ErlNifSelectReturnFlags;
+    fn resource_select_read(&self, caller_env: Option<&Env>, event: ErlNifEvent, pid: &LocalPid, msg: NIF_TERM, msg_env: Option<&Env>) -> ErlNifSelectReturnFlags;
+    fn resource_select_write(&self, caller_env: Option<&Env>, event: ErlNifEvent, pid: &LocalPid, msg: NIF_TERM, msg_env: Option<&Env>) -> ErlNifSelectReturnFlags;
+    fn resource_select_error(&self, caller_env: Option<&Env>, event: ErlNifEvent, pid: &LocalPid, msg: NIF_TERM, msg_env: Option<&Env>) -> ErlNifSelectReturnFlags;
+}
+
+impl<T: SelectStopResource> ResourceArcSelect for ResourceArc<T> {
+    fn resource_select(&self, caller_env: Option<&Env>, event: ErlNifEvent, mode: ErlNifSelectFlags, pid: &LocalPid, select_ref: NIF_TERM) -> ErlNifSelectReturnFlags {
+        let env = maybe_nif_env(caller_env);
+        let res = unsafe {
+            crate::sys::enif_select(env, event, mode, self.raw, pid.as_c_arg(), select_ref)
+        };
+        res
+    }
+
+    fn resource_select_read(&self, caller_env: Option<&Env>, event: ErlNifEvent, pid: &LocalPid, msg: NIF_TERM, msg_env: Option<&Env>) -> ErlNifSelectReturnFlags {
+        let env = maybe_nif_env(caller_env);
+        let msg_env = maybe_nif_env(msg_env);
+        let obj = self.raw as *mut c_void;
+        let res = unsafe {
+            crate::sys::enif_select_read(env, event, obj, pid.as_c_arg(), msg, msg_env)
+        };
+        res
+    }
+    
+    fn resource_select_write(&self, caller_env: Option<&Env>, event: ErlNifEvent, pid: &LocalPid, msg: NIF_TERM, msg_env: Option<&Env>) -> ErlNifSelectReturnFlags {
+        let env = maybe_nif_env(caller_env);
+        let msg_env = maybe_nif_env(msg_env);
+        let obj = self.raw as *mut c_void;
+        let res = unsafe {
+            crate::sys::enif_select_write(env, event, obj, pid.as_c_arg(), msg, msg_env)
+        };
+        res
+    }
+
+    fn resource_select_error(&self, caller_env: Option<&Env>, event: ErlNifEvent, pid: &LocalPid, msg: NIF_TERM, msg_env: Option<&Env>) -> ErlNifSelectReturnFlags {
+        let env = maybe_nif_env(caller_env);
+        let msg_env = maybe_nif_env(msg_env);
+        let obj = self.raw as *mut c_void;
+        let res = unsafe {
+            crate::sys::enif_select_error(env, event, obj, pid.as_c_arg(), msg, msg_env)
+        };
+        res
+    }
+}
+
+pub trait ResourceArcProcessMonitor {
+    fn monitor_process(&self, caller_env: Option<&Env>, pid: &LocalPid) -> Option<Monitor>;
+    fn demonitor_process(&self, caller_env: Option<&Env>, mon: &Monitor) -> bool;
+}
+
+impl<T: MonitorDownResource> ResourceArcProcessMonitor for ResourceArc<T> {
+    fn monitor_process(&self, caller_env: Option<&Env>, pid: &LocalPid) -> Option<Monitor> {
+        let env = maybe_process_bound_nif_env(caller_env);
+        let mut mon = MaybeUninit::uninit();
+        let res = unsafe {
+            crate::sys::enif_monitor_process(env, self.raw, pid.as_c_arg(), mon.as_mut_ptr()) == 0
+        };
+        if res {
+            Some(Monitor::from_c_arg(unsafe { mon.assume_init() }))
+        } else {
+            None
+        }
+    }
+
+    fn demonitor_process(&self, caller_env: Option<&Env>, mon: &Monitor) -> bool {
+        let env = maybe_process_bound_nif_env(caller_env);
+        unsafe { rustler_sys::enif_demonitor_process(env, self.raw, mon.as_c_arg()) == 0 }
+    }
+}
+
+/// Is the current thread an Erlang scheduler thread?
+fn is_scheduler_thread() -> bool {
+    // From `enif_thread_type` docs: A positive value indicates a scheduler
+    // thread while a negative value or zero indicates another type of thread.
+    unsafe { crate::sys::enif_thread_type() > 0 }
+}
+
+fn maybe_nif_env(env: Option<&Env>) -> NIF_ENV {
+    match env {
+        Some(x) => x.as_c_arg(),
+        None => ptr::null_mut(),
+    }
+}
+
+fn maybe_process_bound_nif_env(env: Option<&Env>) -> NIF_ENV {
+    if is_scheduler_thread() {
+        let env = env.expect("Env required when calling from a scheduler thread");
+        // Panic if `env` is not the environment of the calling process.
+        env.pid();
+        env.as_c_arg()
+    } else {
+        assert!(
+            env.is_none(),
+            "Env provided when not calling from a scheduler thread"
+        );
+        ptr::null_mut()
+    }
+}
+
+pub trait SelectStopResource: ResourceTypeProvider {
+    fn resource_select_stop(env: Env, resource: ResourceArc<Self>, event: ErlNifEvent, is_direct_call: bool);
+}
+
+pub trait MonitorDownResource: ResourceTypeProvider {
+    fn resource_monitor_down(env: Env, resource: ResourceArc<Self>, pid: LocalPid, mon: Monitor);
+}
+
+pub trait DynamicCallResource: ResourceTypeProvider {
+    fn resource_dynamic_call(env: Env, resource: ResourceArc<Self>, call_data: *const c_void);
+}
+
+/// Used by the resource! macro to pass the unsafe `resource_select_stop` callback in a
+/// safe way (because `resource_select_stop` cannot be accessed outside of this module)
+#[doc(hidden)]
+pub trait ResourceSelectStopProvider {
+    fn resource_select_stop_callback() -> Option<NifResourceStop>;
+}
+
+impl ResourceSelectStopProvider for () {
+    fn resource_select_stop_callback() -> Option<NifResourceStop> {
+        None
+    }
+}
+
+impl<T: SelectStopResource> ResourceSelectStopProvider for T {
+    fn resource_select_stop_callback() -> Option<NifResourceStop> {
+        Some(resource_select_stop::<T>)
+    }
+}
+
+/// Used by the resource! macro to pass the unsafe `resource_monitor_down` callback in a
+/// safe way (because `resource_monitor_down` cannot be accessed outside of this module)
+#[doc(hidden)]
+pub trait ResourceMonitorDownProvider {
+    fn resource_monitor_down_callback() -> Option<NifResourceDown>;
+}
+
+impl ResourceMonitorDownProvider for () {
+    fn resource_monitor_down_callback() -> Option<NifResourceDown> {
+        None
+    }
+}
+
+impl<T: MonitorDownResource> ResourceMonitorDownProvider for T {
+    fn resource_monitor_down_callback() -> Option<NifResourceDown> {
+        Some(resource_monitor_down::<T>)
+    }
+}
+
+/// Used by the resource! macro to pass the unsafe `resource_monitor_down` callback in a
+/// safe way (because `resource_monitor_down` cannot be accessed outside of this module)
+#[doc(hidden)]
+pub trait ResourceDynamicCallProvider {
+    fn resource_dynamic_call_callback() -> Option<NifResourceDynCall>;
+}
+
+impl ResourceDynamicCallProvider for () {
+    fn resource_dynamic_call_callback() -> Option<NifResourceDynCall> {
+        None
+    }
+}
+
+impl<T: DynamicCallResource> ResourceDynamicCallProvider for T {
+    fn resource_dynamic_call_callback() -> Option<NifResourceDynCall> {
+        Some(resource_dynamic_call::<T>)
     }
 }
 
@@ -237,14 +461,21 @@ macro_rules! resource_struct_init {
 
 #[macro_export]
 macro_rules! resource {
-    ($struct_name:ty, $env: ident) => {
+    ($struct_name:ty, $env:ident) => {
+        $crate::resource!($struct_name, $env, (), (), ())
+    };
+    ($struct_name:ty, $env:ident, $stop:ty, $down:ty, $dyncall:ty) => {
         {
+            use $crate::resource::{ResourceSelectStopProvider, ResourceMonitorDownProvider, ResourceDynamicCallProvider};
             static mut STRUCT_TYPE: Option<$crate::resource::ResourceType<$struct_name>> = None;
 
             let temp_struct_type =
-                match $crate::resource::open_struct_resource_type::<$struct_name>(
+                match $crate::resource::init_struct_resource_type::<$struct_name>(
                     $env,
                     concat!(stringify!($struct_name), "\x00"),
+                    <$stop>::resource_select_stop_callback(),
+                    <$down>::resource_monitor_down_callback(),
+                    <$dyncall>::resource_dynamic_call_callback(),
                     $crate::resource::NIF_RESOURCE_FLAGS::ERL_NIF_RT_CREATE
                     ) {
                     Some(inner) => inner,

@@ -77,12 +77,12 @@ impl<'a> Env<'a> {
     /// an `OwnedEnv` on a thread that's managed by the Erlang VM).
     ///
     pub fn send(self, pid: &LocalPid, message: Term<'a>) {
-        let thread_type = unsafe { rustler_sys::enif_thread_type() };
-        let env = if thread_type == rustler_sys::ERL_NIF_THR_UNDEFINED {
+        let thread_type = unsafe { crate::sys::enif_thread_type() };
+        let env = if thread_type == crate::sys::ERL_NIF_THR_UNDEFINED {
             ptr::null_mut()
-        } else if thread_type == rustler_sys::ERL_NIF_THR_NORMAL_SCHEDULER
-            || thread_type == rustler_sys::ERL_NIF_THR_DIRTY_CPU_SCHEDULER
-            || thread_type == rustler_sys::ERL_NIF_THR_DIRTY_IO_SCHEDULER
+        } else if thread_type == crate::sys::ERL_NIF_THR_NORMAL_SCHEDULER
+            || thread_type == crate::sys::ERL_NIF_THR_DIRTY_CPU_SCHEDULER
+            || thread_type == crate::sys::ERL_NIF_THR_DIRTY_IO_SCHEDULER
         {
             // Panic if `self` is not the environment of the calling process.
             self.pid();
@@ -94,7 +94,7 @@ impl<'a> Env<'a> {
 
         // Send the message.
         unsafe {
-            rustler_sys::enif_send(env, pid.as_c_arg(), ptr::null_mut(), message.as_c_arg());
+            crate::sys::enif_send(env, pid.as_c_arg(), ptr::null_mut(), message.as_c_arg());
         }
     }
 
@@ -115,7 +115,7 @@ impl<'a> Env<'a> {
         let mut enif_pid = std::mem::MaybeUninit::uninit();
 
         if unsafe {
-            rustler_sys::enif_whereis_pid(
+            crate::sys::enif_whereis_pid(
                 self.as_c_arg(),
                 name_or_pid.as_c_arg(),
                 enif_pid.as_mut_ptr(),
@@ -179,7 +179,7 @@ impl OwnedEnv {
     /// Allocates a new process-independent environment.
     pub fn new() -> OwnedEnv {
         OwnedEnv {
-            env: Arc::new(unsafe { rustler_sys::enif_alloc_env() }),
+            env: Arc::new(unsafe { crate::sys::enif_alloc_env() }),
         }
     }
 
@@ -207,14 +207,14 @@ impl OwnedEnv {
     where
         F: for<'a> FnOnce(Env<'a>) -> Term<'a>,
     {
-        if unsafe { rustler_sys::enif_thread_type() } != rustler_sys::ERL_NIF_THR_UNDEFINED {
+        if unsafe { crate::sys::enif_thread_type() } != crate::sys::ERL_NIF_THR_UNDEFINED {
             panic!("send_and_clear: current thread is managed");
         }
 
         let message = self.run(|env| closure(env).as_c_arg());
 
         unsafe {
-            rustler_sys::enif_send(ptr::null_mut(), recipient.as_c_arg(), *self.env, message);
+            crate::sys::enif_send(ptr::null_mut(), recipient.as_c_arg(), *self.env, message);
         }
 
         self.clear();
@@ -232,7 +232,7 @@ impl OwnedEnv {
         let c_env = *self.env;
         self.env = Arc::new(c_env);
         unsafe {
-            rustler_sys::enif_clear_env(c_env);
+            crate::sys::enif_clear_env(c_env);
         }
     }
 
@@ -275,7 +275,7 @@ impl OwnedEnv {
 impl Drop for OwnedEnv {
     fn drop(&mut self) {
         unsafe {
-            rustler_sys::enif_free_env(*self.env);
+            crate::sys::enif_free_env(*self.env);
         }
     }
 }

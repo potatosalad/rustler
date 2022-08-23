@@ -146,11 +146,11 @@ pub type ErlNifResourceDynCall =
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct ErlNifResourceTypeInit {
-    dtor: *const ErlNifResourceDtor,
-    stop: *const ErlNifResourceStop, // at ERL_NIF_SELECT_STOP event
-    down: *const ErlNifResourceDown, // enif_monitor_process
-    members: c_int,
-    dyncall: *const ErlNifResourceDynCall,
+    pub dtor: *const ErlNifResourceDtor,
+    pub stop: *const ErlNifResourceStop, // at ERL_NIF_SELECT_STOP event
+    pub down: *const ErlNifResourceDown, // enif_monitor_process
+    pub members: c_int, // should be 4
+    pub dyncall: *const ErlNifResourceDynCall, // enif_dynamic_resource_call
 }
 
 /// See [ErlNifSelectFlags](http://erlang.org/doc/man/erl_nif.html#ErlNifSelectFlags) in the Erlang docs.
@@ -159,11 +159,36 @@ pub type ErlNifSelectFlags = c_int;
 pub const ERL_NIF_SELECT_READ: ErlNifSelectFlags = 1 << 0;
 pub const ERL_NIF_SELECT_WRITE: ErlNifSelectFlags = 1 << 1;
 pub const ERL_NIF_SELECT_STOP: ErlNifSelectFlags = 1 << 2;
-pub const ERL_NIF_SELECT_FAILED: ErlNifSelectFlags = 1 << 3;
-pub const ERL_NIF_SELECT_READ_CANCELLED: ErlNifSelectFlags = 1 << 4;
-pub const ERL_NIF_SELECT_WRITE_CANCELLED: ErlNifSelectFlags = 1 << 5;
-pub const ERL_NIF_SELECT_ERROR_CANCELLED: ErlNifSelectFlags = 1 << 6;
-pub const ERL_NIF_SELECT_NOTSUP: ErlNifSelectFlags = 1 << 7;
+pub const ERL_NIF_SELECT_CANCEL: ErlNifSelectFlags = 1 << 3;
+pub const ERL_NIF_SELECT_CUSTOM_MSG: ErlNifSelectFlags = 1 << 4;
+pub const ERL_NIF_SELECT_ERROR: ErlNifSelectFlags = 1 << 5;
+
+/// Fake type to differentiate between ErlNifSelectFlags defined above.
+pub type ErlNifSelectReturnFlags = c_int;
+#[allow(clippy::identity_op)]
+pub const ERL_NIF_SELECT_STOP_CALLED: ErlNifSelectReturnFlags = 1 << 0;
+pub const ERL_NIF_SELECT_STOP_SCHEDULED: ErlNifSelectReturnFlags = 1 << 1;
+pub const ERL_NIF_SELECT_INVALID_EVENT: ErlNifSelectReturnFlags = 1 << 2;
+pub const ERL_NIF_SELECT_FAILED: ErlNifSelectReturnFlags = 1 << 3;
+pub const ERL_NIF_SELECT_READ_CANCELLED: ErlNifSelectReturnFlags = 1 << 4;
+pub const ERL_NIF_SELECT_WRITE_CANCELLED: ErlNifSelectReturnFlags = 1 << 5;
+pub const ERL_NIF_SELECT_ERROR_CANCELLED: ErlNifSelectReturnFlags = 1 << 6;
+pub const ERL_NIF_SELECT_NOTSUP: ErlNifSelectReturnFlags = 1 << 7;
+
+/// See [enif_select_read](https://www.erlang.org/doc/man/erl_nif.html#enif_select_read) in the Erlang docs.
+pub unsafe fn enif_select_read(env: *mut ErlNifEnv, event: ErlNifEvent, obj: *mut c_void, pid: *const ErlNifPid, msg: ERL_NIF_TERM, msg_env: *mut ErlNifEnv) -> ErlNifSelectReturnFlags {
+    enif_select_x(env, event, ERL_NIF_SELECT_READ | ERL_NIF_SELECT_CUSTOM_MSG, obj, pid, msg, msg_env)
+}
+
+/// See [enif_select_write](https://www.erlang.org/doc/man/erl_nif.html#enif_select_write) in the Erlang docs.
+pub unsafe fn enif_select_write(env: *mut ErlNifEnv, event: ErlNifEvent, obj: *mut c_void, pid: *const ErlNifPid, msg: ERL_NIF_TERM, msg_env: *mut ErlNifEnv) -> ErlNifSelectReturnFlags {
+    enif_select_x(env, event, ERL_NIF_SELECT_WRITE | ERL_NIF_SELECT_CUSTOM_MSG, obj, pid, msg, msg_env)
+}
+
+/// See [enif_select_error](https://www.erlang.org/doc/man/erl_nif.html#enif_select_error) in the Erlang docs.
+pub unsafe fn enif_select_error(env: *mut ErlNifEnv, event: ErlNifEvent, obj: *mut c_void, pid: *const ErlNifPid, msg: ERL_NIF_TERM, msg_env: *mut ErlNifEnv) -> ErlNifSelectReturnFlags {
+    enif_select_x(env, event, ERL_NIF_SELECT_ERROR | ERL_NIF_SELECT_CUSTOM_MSG, obj, pid, msg, msg_env)
+}
 
 /// See [ErlNifMonitor](http://www.erlang.org/doc/man/erl_nif.html#ErlNifMonitor) in the Erlang docs.
 #[derive(Debug, Copy, Clone)]

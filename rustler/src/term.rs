@@ -56,7 +56,7 @@ impl<'a> Term<'a> {
             unsafe {
                 Term::new(
                     env,
-                    rustler_sys::enif_make_copy(env.as_c_arg(), self.as_c_arg()),
+                    crate::sys::enif_make_copy(env.as_c_arg(), self.as_c_arg()),
                 )
             }
         }
@@ -103,8 +103,8 @@ impl<'a> Term<'a> {
     /// It takes 32-bit salt values and generates hashes within 0..2^32-1.
     pub fn hash_internal(&self, salt: u32) -> u32 {
         unsafe {
-            rustler_sys::enif_hash(
-                rustler_sys::ErlNifHash::ERL_NIF_INTERNAL_HASH,
+            crate::sys::enif_hash(
+                crate::sys::ErlNifHash::ERL_NIF_INTERNAL_HASH,
                 self.as_c_arg(),
                 salt as u64,
             ) as u32
@@ -117,7 +117,7 @@ impl<'a> Term<'a> {
     /// It generates hashes within 0..2^27-1.
     pub fn hash_phash2(&self) -> u32 {
         unsafe {
-            rustler_sys::enif_hash(rustler_sys::ErlNifHash::ERL_NIF_PHASH2, self.as_c_arg(), 0)
+            crate::sys::enif_hash(crate::sys::ErlNifHash::ERL_NIF_PHASH2, self.as_c_arg(), 0)
                 as u32
         }
     }
@@ -125,13 +125,13 @@ impl<'a> Term<'a> {
 
 impl<'a> PartialEq for Term<'a> {
     fn eq(&self, other: &Term) -> bool {
-        unsafe { rustler_sys::enif_is_identical(self.as_c_arg(), other.as_c_arg()) == 1 }
+        unsafe { crate::sys::enif_is_identical(self.as_c_arg(), other.as_c_arg()) == 1 }
     }
 }
 impl<'a> Eq for Term<'a> {}
 
 fn cmp(lhs: &Term, rhs: &Term) -> Ordering {
-    let ord = unsafe { rustler_sys::enif_compare(lhs.as_c_arg(), rhs.as_c_arg()) };
+    let ord = unsafe { crate::sys::enif_compare(lhs.as_c_arg(), rhs.as_c_arg()) };
     match ord {
         0 => Ordering::Equal,
         n if n < 0 => Ordering::Less,

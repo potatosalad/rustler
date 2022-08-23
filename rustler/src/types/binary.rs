@@ -225,7 +225,7 @@ impl PartialEq<Binary<'_>> for OwnedBinary {
 
 impl Drop for OwnedBinary {
     fn drop(&mut self) {
-        unsafe { rustler_sys::enif_release_binary(&mut self.0) };
+        unsafe { crate::sys::enif_release_binary(&mut self.0) };
     }
 }
 
@@ -252,7 +252,7 @@ impl<'a> Binary<'a> {
         let term = unsafe {
             Term::new(
                 env,
-                rustler_sys::enif_make_binary(env.as_c_arg(), &mut owned.0),
+                crate::sys::enif_make_binary(env.as_c_arg(), &mut owned.0),
             )
         };
         Binary {
@@ -279,7 +279,7 @@ impl<'a> Binary<'a> {
     pub fn from_term(term: Term<'a>) -> Result<Self, Error> {
         let mut binary = MaybeUninit::uninit();
         if unsafe {
-            rustler_sys::enif_inspect_binary(
+            crate::sys::enif_inspect_binary(
                 term.get_env().as_c_arg(),
                 term.as_c_arg(),
                 binary.as_mut_ptr(),
@@ -302,7 +302,7 @@ impl<'a> Binary<'a> {
     pub fn from_iolist(term: Term<'a>) -> Result<Self, Error> {
         let mut binary = MaybeUninit::uninit();
         if unsafe {
-            rustler_sys::enif_inspect_iolist_as_binary(
+            crate::sys::enif_inspect_iolist_as_binary(
                 term.get_env().as_c_arg(),
                 term.as_c_arg(),
                 binary.as_mut_ptr(),
@@ -343,7 +343,7 @@ impl<'a> Binary<'a> {
         }
 
         let raw_term = unsafe {
-            rustler_sys::enif_make_sub_binary(
+            crate::sys::enif_make_sub_binary(
                 self.term.get_env().as_c_arg(),
                 self.term.as_c_arg(),
                 offset,

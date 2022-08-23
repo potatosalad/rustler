@@ -9,7 +9,7 @@ macro_rules! impl_number_transcoder {
                 unsafe {
                     Term::new(
                         env,
-                        rustler_sys::$encode_fun(env.as_c_arg(), *self as $nif_type),
+                        crate::sys::$encode_fun(env.as_c_arg(), *self as $nif_type),
                     )
                 }
             }
@@ -19,7 +19,7 @@ macro_rules! impl_number_transcoder {
                 #![allow(unused_unsafe)]
                 let mut res: $nif_type = Default::default();
                 if unsafe {
-                    rustler_sys::$decode_fun(term.get_env().as_c_arg(), term.as_c_arg(), &mut res)
+                    crate::sys::$decode_fun(term.get_env().as_c_arg(), term.as_c_arg(), &mut res)
                 } == 0
                 {
                     return Err(Error::BadArg);

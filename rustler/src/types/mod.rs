@@ -16,6 +16,10 @@ pub mod map;
 pub use self::map::MapIterator;
 
 #[doc(hidden)]
+pub mod monitor;
+pub use self::monitor::Monitor;
+
+#[doc(hidden)]
 pub mod primitive;
 #[doc(hidden)]
 pub mod string;

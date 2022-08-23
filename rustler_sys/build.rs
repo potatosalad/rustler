@@ -848,6 +848,11 @@ fn build_api(b: &mut dyn ApiBuilder, opts: &GenerateOptions) {
 
     if opts.nif_version >= (2, 15) {
         b.func(
+            "c_int",
+            "enif_select_x",
+            "env: *mut ErlNifEnv, e: ErlNifEvent, flags: ErlNifSelectFlags, obj: *const c_void, pid: *const ErlNifPid, msg: ERL_NIF_TERM, msg_env: *mut ErlNifEnv"
+        );
+        b.func(
             "ErlNifTermType",
             "enif_term_type",
             "env: *mut ErlNifEnv, term: *const ERL_NIF_TERM",
