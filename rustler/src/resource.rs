@@ -4,17 +4,21 @@
 //! NIF calls. The struct will be automatically dropped when the BEAM GC decides that there are no
 //! more references to the resource.
 
-use std::{marker::PhantomData, mem::MaybeUninit};
 use std::mem;
 use std::ops::Deref;
 use std::ptr;
+use std::{marker::PhantomData, mem::MaybeUninit};
 
 use crate::codegen_runtime::NIF_TERM;
-use crate::sys::{ErlNifEvent, ErlNifMonitor, ErlNifPid, ErlNifSelectFlags, ErlNifSelectReturnFlags, ERL_NIF_SELECT_READ, ERL_NIF_SELECT_WRITE, ERL_NIF_SELECT_ERROR, ERL_NIF_SELECT_CUSTOM_MSG};
+use crate::sys::{
+    ErlNifEvent, ErlNifMonitor, ErlNifPid, ErlNifSelectFlags, ErlNifSelectReturnFlags,
+    ERL_NIF_SELECT_CUSTOM_MSG, ERL_NIF_SELECT_ERROR, ERL_NIF_SELECT_READ, ERL_NIF_SELECT_WRITE,
+};
 
 use super::{Decoder, Encoder, Env, Error, LocalPid, Monitor, NifResult, Term};
 use crate::wrapper::{
-    c_int, c_void, NifResourceFlags, NifResourceStop, NifResourceDown, NifResourceDynCall, MUTABLE_NIF_RESOURCE_HANDLE, NIF_ENV, NIF_RESOURCE_TYPE,
+    c_int, c_void, NifResourceDown, NifResourceDynCall, NifResourceFlags, NifResourceStop,
+    MUTABLE_NIF_RESOURCE_HANDLE, NIF_ENV, NIF_RESOURCE_TYPE,
 };
 
 /// Re-export a type used by the `resource!` macro.
@@ -282,14 +286,49 @@ where
 }
 
 pub trait ResourceArcSelect {
-    fn resource_select(&self, caller_env: Option<&Env>, event: ErlNifEvent, mode: ErlNifSelectFlags, pid: &LocalPid, select_ref: NIF_TERM) -> ErlNifSelectReturnFlags;
-    fn resource_select_read(&self, caller_env: Option<&Env>, event: ErlNifEvent, pid: &LocalPid, msg: NIF_TERM, msg_env: Option<&Env>) -> ErlNifSelectReturnFlags;
-    fn resource_select_write(&self, caller_env: Option<&Env>, event: ErlNifEvent, pid: &LocalPid, msg: NIF_TERM, msg_env: Option<&Env>) -> ErlNifSelectReturnFlags;
-    fn resource_select_error(&self, caller_env: Option<&Env>, event: ErlNifEvent, pid: &LocalPid, msg: NIF_TERM, msg_env: Option<&Env>) -> ErlNifSelectReturnFlags;
+    fn resource_select(
+        &self,
+        caller_env: Option<&Env>,
+        event: ErlNifEvent,
+        mode: ErlNifSelectFlags,
+        pid: &LocalPid,
+        select_ref: NIF_TERM,
+    ) -> ErlNifSelectReturnFlags;
+    fn resource_select_read(
+        &self,
+        caller_env: Option<&Env>,
+        event: ErlNifEvent,
+        pid: &LocalPid,
+        msg: NIF_TERM,
+        msg_env: Option<&Env>,
+    ) -> ErlNifSelectReturnFlags;
+    fn resource_select_write(
+        &self,
+        caller_env: Option<&Env>,
+        event: ErlNifEvent,
+        pid: &LocalPid,
+        msg: NIF_TERM,
+        msg_env: Option<&Env>,
+    ) -> ErlNifSelectReturnFlags;
+    fn resource_select_error(
+        &self,
+        caller_env: Option<&Env>,
+        event: ErlNifEvent,
+        pid: &LocalPid,
+        msg: NIF_TERM,
+        msg_env: Option<&Env>,
+    ) -> ErlNifSelectReturnFlags;
 }
 
 impl<T: SelectStopResource> ResourceArcSelect for ResourceArc<T> {
-    fn resource_select(&self, caller_env: Option<&Env>, event: ErlNifEvent, mode: ErlNifSelectFlags, pid: &LocalPid, select_ref: NIF_TERM) -> ErlNifSelectReturnFlags {
+    fn resource_select(
+        &self,
+        caller_env: Option<&Env>,
+        event: ErlNifEvent,
+        mode: ErlNifSelectFlags,
+        pid: &LocalPid,
+        select_ref: NIF_TERM,
+    ) -> ErlNifSelectReturnFlags {
         let env = maybe_nif_env(caller_env);
         let res = unsafe {
             crate::sys::enif_select(env, event, mode, self.raw, pid.as_c_arg(), select_ref)
@@ -297,33 +336,51 @@ impl<T: SelectStopResource> ResourceArcSelect for ResourceArc<T> {
         res
     }
 
-    fn resource_select_read(&self, caller_env: Option<&Env>, event: ErlNifEvent, pid: &LocalPid, msg: NIF_TERM, msg_env: Option<&Env>) -> ErlNifSelectReturnFlags {
+    fn resource_select_read(
+        &self,
+        caller_env: Option<&Env>,
+        event: ErlNifEvent,
+        pid: &LocalPid,
+        msg: NIF_TERM,
+        msg_env: Option<&Env>,
+    ) -> ErlNifSelectReturnFlags {
         let env = maybe_nif_env(caller_env);
         let msg_env = maybe_nif_env(msg_env);
         let obj = self.raw as *mut c_void;
-        let res = unsafe {
-            crate::sys::enif_select_read(env, event, obj, pid.as_c_arg(), msg, msg_env)
-        };
-        res
-    }
-    
-    fn resource_select_write(&self, caller_env: Option<&Env>, event: ErlNifEvent, pid: &LocalPid, msg: NIF_TERM, msg_env: Option<&Env>) -> ErlNifSelectReturnFlags {
-        let env = maybe_nif_env(caller_env);
-        let msg_env = maybe_nif_env(msg_env);
-        let obj = self.raw as *mut c_void;
-        let res = unsafe {
-            crate::sys::enif_select_write(env, event, obj, pid.as_c_arg(), msg, msg_env)
-        };
+        let res =
+            unsafe { crate::sys::enif_select_read(env, event, obj, pid.as_c_arg(), msg, msg_env) };
         res
     }
 
-    fn resource_select_error(&self, caller_env: Option<&Env>, event: ErlNifEvent, pid: &LocalPid, msg: NIF_TERM, msg_env: Option<&Env>) -> ErlNifSelectReturnFlags {
+    fn resource_select_write(
+        &self,
+        caller_env: Option<&Env>,
+        event: ErlNifEvent,
+        pid: &LocalPid,
+        msg: NIF_TERM,
+        msg_env: Option<&Env>,
+    ) -> ErlNifSelectReturnFlags {
         let env = maybe_nif_env(caller_env);
         let msg_env = maybe_nif_env(msg_env);
         let obj = self.raw as *mut c_void;
-        let res = unsafe {
-            crate::sys::enif_select_error(env, event, obj, pid.as_c_arg(), msg, msg_env)
-        };
+        let res =
+            unsafe { crate::sys::enif_select_write(env, event, obj, pid.as_c_arg(), msg, msg_env) };
+        res
+    }
+
+    fn resource_select_error(
+        &self,
+        caller_env: Option<&Env>,
+        event: ErlNifEvent,
+        pid: &LocalPid,
+        msg: NIF_TERM,
+        msg_env: Option<&Env>,
+    ) -> ErlNifSelectReturnFlags {
+        let env = maybe_nif_env(caller_env);
+        let msg_env = maybe_nif_env(msg_env);
+        let obj = self.raw as *mut c_void;
+        let res =
+            unsafe { crate::sys::enif_select_error(env, event, obj, pid.as_c_arg(), msg, msg_env) };
         res
     }
 }
@@ -383,7 +440,12 @@ fn maybe_process_bound_nif_env(env: Option<&Env>) -> NIF_ENV {
 }
 
 pub trait SelectStopResource: ResourceTypeProvider {
-    fn resource_select_stop(env: Env, resource: ResourceArc<Self>, event: ErlNifEvent, is_direct_call: bool);
+    fn resource_select_stop(
+        env: Env,
+        resource: ResourceArc<Self>,
+        event: ErlNifEvent,
+        is_direct_call: bool,
+    );
 }
 
 pub trait MonitorDownResource: ResourceTypeProvider {

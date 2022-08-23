@@ -1,15 +1,12 @@
 use crate::wrapper::{
-    NifResourceDtor, NifResourceStop, NifResourceDown, NifResourceDynCall, NifResourceFlags, NIF_ENV, NIF_RESOURCE_HANDLE, NIF_RESOURCE_TYPE, NIF_TERM,
+    NifResourceDown, NifResourceDtor, NifResourceDynCall, NifResourceFlags, NifResourceStop,
+    NIF_ENV, NIF_RESOURCE_HANDLE, NIF_RESOURCE_TYPE, NIF_TERM,
 };
 
 pub use crate::sys::{
     enif_alloc_resource as alloc_resource, enif_keep_resource as keep_resource,
-    enif_make_resource as make_resource,
-    ErlNifResourceTypeInit,
-    ErlNifResourceDtor,
-    ErlNifResourceStop,
-    ErlNifResourceDown,
-    ErlNifResourceDynCall,
+    enif_make_resource as make_resource, ErlNifResourceDown, ErlNifResourceDtor,
+    ErlNifResourceDynCall, ErlNifResourceStop, ErlNifResourceTypeInit,
 };
 
 pub use crate::sys::enif_release_resource as release_resource;

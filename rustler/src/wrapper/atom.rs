@@ -1,6 +1,6 @@
+use crate::sys::ErlNifCharEncoding::ERL_NIF_LATIN1;
 use crate::wrapper::{c_uint, NIF_ENV, NIF_TERM};
 use crate::Error;
-use crate::sys::ErlNifCharEncoding::ERL_NIF_LATIN1;
 
 pub unsafe fn make_atom(env: NIF_ENV, name: &[u8]) -> NIF_TERM {
     crate::sys::enif_make_atom_len(env, name.as_ptr(), name.len())

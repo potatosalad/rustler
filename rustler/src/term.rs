@@ -117,8 +117,7 @@ impl<'a> Term<'a> {
     /// It generates hashes within 0..2^27-1.
     pub fn hash_phash2(&self) -> u32 {
         unsafe {
-            crate::sys::enif_hash(crate::sys::ErlNifHash::ERL_NIF_PHASH2, self.as_c_arg(), 0)
-                as u32
+            crate::sys::enif_hash(crate::sys::ErlNifHash::ERL_NIF_PHASH2, self.as_c_arg(), 0) as u32
         }
     }
 }

@@ -1,5 +1,5 @@
+pub(crate) use crate::sys::ErlNifBinary;
 use crate::{wrapper::size_t, Env, Term};
-pub(in crate) use crate::sys::ErlNifBinary;
 use std::mem::MaybeUninit;
 
 pub unsafe fn alloc(size: size_t) -> Option<ErlNifBinary> {
